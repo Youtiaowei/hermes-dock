@@ -1,0 +1,45 @@
+# ============================================
+# Hermes Dock - .gitignore
+# ============================================
+
+# ---- Dependencies ----
+node_modules/
+
+# ---- Build & Packaging Output ----
+dist/
+dist-packaged/
+out/
+release/
+.electron-builder/
+
+# ---- Logs ----
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ---- Environment & Secrets ----
+.env
+.env.*
+
+# ---- Backup & Temp Files ----
+*.bak
+*.swp
+*.swo
+*~
+
+# ---- OS Generated ----
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# ---- Internal / Not for Public Repo ----
+# Test file used during development
+test-electron.js
+
+# Internal Hermes skill documentation
+skills/
+
+# ---- Lock File (optional for small project) ----
+package-lock.json
