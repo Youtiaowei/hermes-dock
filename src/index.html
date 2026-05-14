@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Hermes Dock</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: transparent; overflow: hidden; font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      height: 100vh;
+      padding: 14px;
+      position: relative;
+      overflow: visible;
+    }
+
+    /* ============================================================
+       ISLAND — single unified pill shape
+       ============================================================ */
+    .island {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      position: relative;
+      background: #111;
+      border-radius: 26px;
+      min-width: 52px;
+      width: 52px;
+      overflow: hidden;
+      transition: width 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+                  height 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+                  border-radius 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    /* Expanded state — wider + taller */
+    .island.expanded {
+      width: 300px;
+      height: auto;
+      border-radius: 26px;
+    }
+
+    /* ============================================================
+       TOP ROW — circle + processing status (inside island)
+       ============================================================ */
+    .top-row {
+      display: flex;
+      align-items: center;
+      height: 52px;
+      min-height: 52px;
+      width: 100%;
+      overflow: visible;
+    }
+
+    .circle {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3px;
+      -webkit-app-region: no-drag;
+    }
+
+    .circle-fill {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: #cc0000; /* default: offline red */
+      transition: background 0.3s ease, transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .circle:hover .circle-fill {
+      transform: scale(0.95);
+    }
+
+    .circle:active .circle-fill {
+      transform: scale(0.9);
+      transition: transform 0.1s ease-in;
+    }
+
+    .circle.online .circle-fill { background: #00cc00; }
+    .circle.offline .circle-fill { background: #cc0000; }
+    .circle.processing .circle-fill { background: #ff8800; animation: breathe 2s ease-in-out infinite; }
+
+    @keyframes breathe {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(0.88); }
+    }
+
+    /* Processing text — hidden when not processing */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 22px 0 0;
+      white-space: nowrap;
+      flex-shrink: 0;
+      width: auto;
+      opacity: 0;
+      transform: translateX(-10px);
+      transition: opacity 0.35s ease 0.1s, transform 0.35s ease 0.1s;
+    }
+
+    .island.expanded .status-bar {
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .status-bar.has-activity {
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .status-text {
+      font-size: 14px;
+      color: #ffcc00;
+      font-weight: 500;
+      letter-spacing: 0.3px;
+      flex-shrink: 0;
+      line-height: 1.4;
+    }
+
+    .status-time {
+      font-size: 12px;
+      color: #aaa;
+      font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
+      margin-left: 2px;
+      line-height: 1.4;
+    }
+
+    /* ============================================================
+       DATA ROWS — inside island, below top row
+       ============================================================ */
+    .data-area {
+      width: 100%;
+      max-height: 0;
+      opacity: 0;
+      overflow: hidden;
+      transition: max-height 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+                  opacity 0.35s ease 0.1s;
+    }
+
+    .island.expanded .data-area {
+      max-height: 300px;
+      opacity: 1;
+    }
+
+    /* ============================================================
+       ORANGE STATE — data-area expands below status bar
+       ============================================================ */
+    .island.expanded-down {
+      width: 300px;
+      height: auto;
+      border-radius: 26px;
+    }
+
+    .island.expanded-down .data-area {
+      max-height: 300px;
+      opacity: 1;
+    }
+
+    /* Auto-expand for processing state — island widens to show status bar */
+    .island.auto-expanded {
+      min-width: 280px;
+      border-radius: 26px;
+    }
+
+    .island.auto-expanded .status-bar {
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .data-divider {
+      height: 1px;
+      background: #333;
+      margin: 0 16px;
+    }
+
+    .data-rows {
+      padding: 10px 16px 14px;
+    }
+
+    .dp-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px 0;
+    }
+
+    .dp-label {
+      color: #999;
+      font-size: 12px;
+    }
+
+    .dp-value {
+      color: #fff;
+      font-size: 13px;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .dp-value.highlight {
+      color: #ff8800;
+      font-weight: 600;
+    }
+
+    /* ============================================================
+       SETTINGS — double click panel
+       ============================================================ */
+    .settings-area {
+      width: 100%;
+      max-height: 0;
+      opacity: 0;
+      overflow: hidden;
+      transition: max-height 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+                  opacity 0.35s ease 0.1s;
+    }
+
+    .island.expanded-settings {
+      width: 300px;
+      height: auto;
+      border-radius: 26px;
+    }
+
+    .island.expanded-settings .settings-area {
+      max-height: 300px;
+      opacity: 1;
+    }
+
+    .settings-rows {
+      padding: 10px 16px 14px;
+    }
+
+    .sp-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #ffcc00;
+      margin-bottom: 8px;
+    }
+
+    .sp-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+    }
+
+    .sp-label {
+      color: #ccc;
+      font-size: 12px;
+    }
+
+    .sp-control {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .sp-btn {
+      background: #333;
+      color: #999;
+      border: 1px solid #444;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      font-family: inherit;
+    }
+
+    .sp-btn:hover {
+      background: #444;
+      color: #fff;
+    }
+
+    .sp-btn.active {
+      background: #ff8800;
+      color: #111;
+      border-color: #ff8800;
+      font-weight: 600;
+    }
+
+    /* Toggle switch */
+    .sp-toggle {
+      position: relative;
+      width: 40px;
+      height: 22px;
+      flex-shrink: 0;
+    }
+
+    .sp-toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .sp-toggle .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: #444;
+      border-radius: 26px;
+      transition: 0.3s;
+    }
+
+    .sp-toggle .slider::before {
+      content: "";
+      position: absolute;
+      height: 16px;
+      width: 16px;
+      left: 3px;
+      bottom: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: 0.3s;
+    }
+
+    .sp-toggle input:checked + .slider {
+      background: #ff8800;
+    }
+
+    .sp-toggle input:checked + .slider::before {
+      transform: translateX(18px);
+    }
+  
+    .circle {
+      width: 52px !important;
+      height: 52px !important;
+      min-width: 52px !important;
+      min-height: 52px !important;
+      max-width: 52px !important;
+      max-height: 52px !important;
+    }
+    /* ============================================================
+       LIGHT THEME
+       ============================================================ */
+    body.light .island {
+      background: #f0f0f0;
+    }
+    body.light .status-text {
+      color: #cc6600;
+    }
+    body.light .status-time {
+      color: #666;
+    }
+    body.light .data-divider {
+      background: #ddd;
+    }
+    body.light .dp-label {
+      color: #666;
+    }
+    body.light .dp-value {
+      color: #333;
+    }
+    body.light .dp-value.highlight {
+      color: #cc6600;
+    }
+    body.light .sp-title {
+      color: #cc6600;
+    }
+    body.light .sp-label {
+      color: #555;
+    }
+    body.light .sp-btn {
+      background: #ddd;
+      color: #555;
+      border-color: #ccc;
+    }
+    body.light .sp-btn:hover {
+      background: #ccc;
+      color: #333;
+    }
+    body.light .sp-btn.active {
+      background: #ff8800;
+      color: #111;
+      border-color: #ff8800;
+    }
+    body.light .sp-toggle .slider {
+      background: #ccc;
+    }
+    body.light .sp-toggle .slider::before {
+      background: #fff;
+    }
+    body.light .sp-toggle input:checked + .slider {
+      background: #ff8800;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="island" id="island">
+      <div class="top-row">
+        <div class="circle offline" id="circle">
+          <div class="circle-fill" id="circleFill"></div>
+        </div>
+        <div class="status-bar" id="statusBar">
+          <span class="status-text" id="text"></span>
+          <span class="status-time" id="time"></span>
+        </div>
+      </div>
+
+      <div class="data-area" id="dataArea">
+        <div class="data-divider"></div>
+        <div class="data-rows">
+          <div class="dp-row">
+            <span class="dp-label">💰 日用量</span>
+            <span class="dp-value highlight" id="dpDaily">--</span>
+          </div>
+          <div class="dp-row">
+            <span class="dp-label">📊 月用量</span>
+            <span class="dp-value" id="dpMonthly">--</span>
+          </div>
+          <div class="dp-row">
+            <span class="dp-label">💬 会话</span>
+            <span class="dp-value" id="dpSessions">--</span>
+          </div>
+          <div class="dp-row">
+            <span class="dp-label">🧠 模型</span>
+            <span class="dp-value" id="dpModel">--</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-area" id="settingsArea">
+        <div class="data-divider"></div>
+        <div class="settings-rows">
+          <div class="sp-title">⚙️ 设置</div>
+          <div class="sp-row">
+            <span class="sp-label">🌐 语言</span>
+            <div class="sp-control" id="spLanguage">
+              <button class="sp-btn active" data-lang="zh">中文</button>
+              <button class="sp-btn" data-lang="en">English</button>
+            </div>
+          </div>
+          <div class="sp-row">
+            <span class="sp-label">🎨 主题</span>
+            <div class="sp-control" id="spTheme">
+              <button class="sp-btn active" data-theme="dark">暗色</button>
+              <button class="sp-btn" data-theme="light">亮色</button>
+            </div>
+          </div>
+          <div class="sp-row">
+            <span class="sp-label">🚀 开机自启</span>
+            <label class="sp-toggle">
+              <input type="checkbox" id="spAutoStart">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="sp-row">
+            <span class="sp-label">🔌 网关</span>
+            <div class="sp-control">
+              <button class="sp-btn" id="spOpenGateway">打开网关</button>
+            </div>
+          <div class="sp-row" style="justify-content:center;padding-top:8px;border-top:1px solid #333;margin-top:4px;">
+            <span id="spAfdian" style="color:#ffcc00;font-size:11px;cursor:pointer;transition:opacity 0.15s;">☕ 请作者喝奶茶</span>
+          </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer, shell } = require('electron');
+
+    const island = document.getElementById('island');
+    const circle = document.getElementById('circle');
+    const statusBar = document.getElementById('statusBar');
+    const text = document.getElementById('text');
+    const time = document.getElementById('time');
+    const dpDaily = document.getElementById('dpDaily');
+    const dpMonthly = document.getElementById('dpMonthly');
+    const dpSessions = document.getElementById('dpSessions');
+    const dpModel = document.getElementById('dpModel');
+
+    // ============================================================
+    //  TRANSLATIONS
+    // ============================================================
+    const translations = {
+      zh: {
+        settingsTitle: '⚙️ 设置',
+        languageLabel: '🌐 语言',
+        themeLabel: '🎨 主题',
+        autoStartLabel: '🚀 开机自启',
+        gatewayLabel: '🔌 网关',
+        openGateway: '打开网关',
+        langZH: '中文',
+        langEN: 'English',
+        themeDark: '暗色',
+        themeLight: '亮色',
+        dailyLabel: '💰 日用量',
+        monthlyLabel: '📊 月用量',
+        sessionsLabel: '💬 会话',
+        modelLabel: '🧠 模型',
+        tokenSuffix: ' Token',
+        sessionsSuffix: ' 活跃'
+      },
+      en: {
+        settingsTitle: '⚙️ Settings',
+        languageLabel: '🌐 Language',
+        themeLabel: '🎨 Theme',
+        autoStartLabel: '🚀 Auto Start',
+        gatewayLabel: '🔌 Gateway',
+        openGateway: 'Open Gateway',
+        langZH: '中文',
+        langEN: 'English',
+        themeDark: 'Dark',
+        themeLight: 'Light',
+        dailyLabel: '💰 Daily',
+        monthlyLabel: '📊 Monthly',
+        sessionsLabel: '💬 Sessions',
+        modelLabel: '🧠 Model',
+        tokenSuffix: ' Token',
+        sessionsSuffix: ' active'
+      }
+    };
+
+    let currentLang = 'zh';
+    let currentTheme = 'dark';
+
+    function t(key) {
+      return (translations[currentLang] && translations[currentLang][key]) || key;
+    }
+
+    function applyLanguage(lang) {
+      currentLang = lang || currentLang;
+      // Settings panel labels
+      var spTitle = document.querySelector('.sp-title');
+      if (spTitle) spTitle.textContent = t('settingsTitle');
+      var spLabels = document.querySelectorAll('.sp-label');
+      var labelKeys = ['languageLabel', 'themeLabel', 'autoStartLabel', 'gatewayLabel'];
+      spLabels.forEach(function(el, i) {
+        if (labelKeys[i]) el.textContent = t(labelKeys[i]);
+      });
+      // Settings buttons
+      var spLangBtns = document.querySelectorAll('#spLanguage .sp-btn');
+      if (spLangBtns[0]) spLangBtns[0].textContent = t('langZH');
+      if (spLangBtns[1]) spLangBtns[1].textContent = t('langEN');
+      var spThemeBtns = document.querySelectorAll('#spTheme .sp-btn');
+      if (spThemeBtns[0]) spThemeBtns[0].textContent = t('themeDark');
+      if (spThemeBtns[1]) spThemeBtns[1].textContent = t('themeLight');
+      var spGwBtn = document.getElementById('spOpenGateway');
+      if (spGwBtn) spGwBtn.textContent = t('openGateway');
+      // Data panel labels
+      var dpLabels = document.querySelectorAll('.dp-label');
+      var dpLabelKeys = ['dailyLabel', 'monthlyLabel', 'sessionsLabel', 'modelLabel'];
+      dpLabels.forEach(function(el, i) {
+        if (dpLabelKeys[i]) el.textContent = t(dpLabelKeys[i]);
+      });
+      // Refresh data values with translated suffixes
+      refreshData();
+    }
+
+    function applyTheme(theme) {
+      currentTheme = theme || currentTheme;
+      if (currentTheme === 'light') {
+        document.body.classList.add('light');
+      } else {
+        document.body.classList.remove('light');
+      }
+    }
+
+    const toolTextMap = {
+      'terminal': '执行命令中...', 'web_search': '搜索中...', 'web_extract': '抓取网页中...',
+      'read_file': '读取文件中...', 'write_file': '写入文件中...', 'patch': '修改文件中...',
+      'search_files': '搜索文件中...', 'delegate_task': '分派任务中...', 'memory': '记忆中...',
+      'skill_manage': '管理技能中...', 'image_generate': '生成图片中...', 'text_to_speech': '语音合成中...',
+      'vision_analyze': '分析图片中...', 'clarify': '确认中...', 'todo': '规划中...',
+      'session_search': '回忆中...', 'send_message': '发送中...', 'cronjob': '定时任务中...',
+      'process': '处理中...'
+    };
+
+    const toolEmojiMap = {
+      'terminal': '💻', 'web_search': '🔍', 'web_extract': '📄',
+      'read_file': '📖', 'write_file': '✍️', 'patch': '🔧',
+      'search_files': '🔎', 'delegate_task': '🔀', 'memory': '🧠',
+      'skill_manage': '📚', 'image_generate': '🎨', 'text_to_speech': '🎵',
+      'vision_analyze': '👁️', 'clarify': '❓', 'todo': '📋',
+      'session_search': '🔍', 'send_message': '💬', 'cronjob': '⏰', 'process': '⚙️'
+    };
+
+    const thinkingTextMap = {
+      'processing': '处理中...', 'deliberating': '深思中...', 'musing': '沉思中...',
+      'brainstorming': '头脑风暴中...', 'reasoning': '推理中...', 'thinking': '思考中...',
+      'analyzing': '分析中...', 'pondering': '琢磨中...', 'reflecting': '反思中...',
+      'considering': '权衡中...', 'evaluating': '评估中...', 'planning': '规划中...',
+      'drafting': '起草中...', 'composing': '撰写中...', 'summarizing': '总结中...',
+      'reviewing': '审阅中...', 'debugging': '调试中...', 'refactoring': '重构中...',
+      'optimizing': '优化中...'
+    };
+
+    const thinkingEmojiMap = {
+      'processing': '⚡', 'deliberating': '💭', 'musing': '🤔',
+      'brainstorming': '💡', 'reasoning': '🧩', 'thinking': '💭',
+      'analyzing': '🔬', 'pondering': '🤔', 'reflecting': '🪞',
+      'considering': '⚖️', 'evaluating': '📊', 'planning': '🗺️',
+      'drafting': '📝', 'composing': '✍️', 'summarizing': '📋',
+      'reviewing': '👀', 'debugging': '🐛', 'refactoring': '🔧', 'optimizing': '🚀'
+    };
+
+    const kawaiiFaces = [
+      '(⊙_⊙)', '(°ロ°)', '⋌(°ロ°)⋌', '(◕‿◕)', '(｡◕‿◕｡)',
+      '٩(◕‿◕｡)۶', '(✿◠‿◠)', '(★ω★)', '(≧◡≦)', '(⌐■_■)'
+    ];
+
+    let lastMessage = '';
+    function getRandomFace() { return kawaiiFaces[Math.floor(Math.random() * kawaiiFaces.length)]; }
+
+    function getToolInfo(message) {
+      for (const [tool, t] of Object.entries(toolTextMap)) {
+        if (message.includes(tool)) return { text: t, emoji: toolEmojiMap[tool] || '⚡' };
+      }
+      const lower = message.toLowerCase();
+      for (const [key, t] of Object.entries(thinkingTextMap)) {
+        if (lower.includes(key)) return { text: t, emoji: thinkingEmojiMap[key] || '⚡' };
+      }
+      return { text: '处理中...', emoji: '⚡' };
+    }
+
+    let currentStatusState = 'offline';
+    let currentProcessingMessage = '';
+    let currentProcessingTime = '';
+    let currentProcessingEmoji = '⚡';
+
+    function updateUI(status) {
+      circle.classList.remove('online', 'offline', 'processing');
+
+      if (status.isProcessing && status.processingInfo) {
+        const message = status.processingInfo.action || '';
+        const t = status.processingInfo.time || '';
+        const info = getToolInfo(message);
+        const displayText = getRandomFace() + ' ' + info.emoji + ' ' + info.text;
+        const wasProcessing = currentStatusState === 'processing';
+        currentStatusState = 'processing';
+        currentProcessingMessage = info.text;
+        currentProcessingTime = t;
+        currentProcessingEmoji = info.emoji;
+        circle.classList.add('processing');
+
+        if (!isAnyPanelOpen() && !wasProcessing) {
+          // First-time auto-expand: measure full text, then animate with bounce
+          if (message !== lastMessage) { lastMessage = message; }
+          text.textContent = displayText;
+          time.textContent = t ? '(' + t + 's)' : '';
+          statusBar.offsetHeight; // force reflow
+          // Let CSS transition animate the island width (bounce effect)
+          island.classList.add('auto-expanded');
+          // Defer width setting by one frame so CSS transition picks up the change
+          requestAnimationFrame(function() {
+            updateAutoExpandSize();
+          });
+          typeText(displayText);
+        } else {
+          if (message !== lastMessage) { lastMessage = message; if (island.classList.contains('auto-expanded')) { text.textContent = displayText; statusBar.offsetHeight; updateAutoExpandSize(); } typeText(displayText); }
+          time.textContent = t ? '(' + t + 's)' : '';
+          if (message === lastMessage && island.classList.contains('auto-expanded')) { updateAutoExpandSize(); }
+        }
+        statusBar.classList.add('has-activity');
+
+} else if (status.isOnline) {
+        const wasProcessing = currentStatusState === 'processing';
+        currentStatusState = 'online';
+        circle.classList.add('online');
+        statusBar.classList.remove('has-activity');
+        text.textContent = ''; time.textContent = ''; lastMessage = '';
+
+        if (wasProcessing && !isAnyPanelOpen()) {
+          island.style.transition = 'none';
+          island.classList.remove('auto-expanded'); island.style.width = '';
+          resizeWindow(COLLAPSED_SIZE);
+          setTimeout(function(){ island.style.transition = ''; }, 400);
+        }
+      } else {
+        const wasProcessing = currentStatusState === 'processing';
+        currentStatusState = 'offline';
+        circle.classList.add('offline');
+        statusBar.classList.remove('has-activity');
+        text.textContent = ''; time.textContent = ''; lastMessage = '';
+
+        if (wasProcessing && !isAnyPanelOpen()) {
+          island.style.transition = 'none';
+          island.classList.remove('auto-expanded'); island.style.width = '';
+          resizeWindow(COLLAPSED_SIZE);
+          setTimeout(function(){ island.style.transition = ''; }, 400);
+        }
+      }
+    }
+
+    function typeText(fullText) {
+      text.textContent = '';
+      var i = 0;
+      var interval = setInterval(function() {
+        if (i < fullText.length) { text.textContent += fullText[i]; i++; }
+        else { clearInterval(interval); }
+      }, 50);
+    }
+
+    var dataRefreshInterval = null;
+    async function refreshData() {
+      try {
+        var data = await ipcRenderer.invoke('get-hermes-data');
+        dpDaily.textContent = (data.dailyFormatted || '0') + t('tokenSuffix');
+        dpMonthly.textContent = (data.monthlyFormatted || '0') + t('tokenSuffix');
+        dpSessions.textContent = (data.activeSessions || 0) + t('sessionsSuffix');
+        dpModel.textContent = data.model || 'unknown';
+      } catch (err) { console.error('Failed to fetch data:', err); }
+    }
+
+    const COLLAPSED_SIZE = { width: 80, height: 80 };
+    const EXPANDED_SIZE = { width: 348, height: 288 };
+    const DOWN_EXPANDED_SIZE = { width: 336, height: 308 };
+    function getAutoExpandedSize() {
+      var sbWidth = statusBar.scrollWidth || 200;
+      var islandW = Math.max(280, 52 + sbWidth + 4);
+      var windowW = islandW + 36;
+      return { width: windowW, height: 88 };
+    }
+
+    function updateAutoExpandSize() {
+      var size = getAutoExpandedSize();
+      island.style.width = (size.width - 36) + 'px';
+      resizeWindow(size);
+    }
+
+    function resizeWindow(size) {
+      try { ipcRenderer.invoke('resize-window', size.width, size.height); } catch (e) {}
+    }
+
+    var clickTimer = null;
+    var clickCount = 0;
+
+    function isAnyPanelOpen() {
+      return island.classList.contains('expanded')
+          || island.classList.contains('expanded-settings')
+          || island.classList.contains('expanded-down');
+    }
+
+    function hideAllPanels() {
+      var hadExpandedDown = island.classList.contains('expanded-down');
+      
+      // Only disable CSS transitions for orange panel (expanded-down).
+      // For green panel (expanded) and settings (expanded-settings), let CSS
+      // transition animate the island width alongside the window animation.
+      if (hadExpandedDown) {
+        island.style.transition = 'none';
+      } else {
+        island.style.transition = '';
+      }
+      
+      island.classList.remove('expanded', 'expanded-settings', 'expanded-down');
+      if (dataRefreshInterval) { clearInterval(dataRefreshInterval); dataRefreshInterval = null; }
+      
+      if (currentStatusState === 'processing') {
+        island.classList.add('auto-expanded');
+        statusBar.offsetHeight;
+        updateAutoExpandSize();
+      } else {
+        island.classList.remove('auto-expanded'); island.style.width = '';
+        resizeWindow(COLLAPSED_SIZE);
+      }
+      
+      // Re-enable CSS transitions after window animation completes (only if disabled)
+      if (hadExpandedDown) {
+        setTimeout(function(){ island.style.transition = ''; }, 400);
+      }
+    }
+
+    function showDataPanel() {
+      island.style.transition = '';
+      island.classList.remove('expanded-settings', 'expanded-down', 'auto-expanded');
+      if (dataRefreshInterval) { clearInterval(dataRefreshInterval); dataRefreshInterval = null; }
+      island.classList.add('expanded');
+      resizeWindow(EXPANDED_SIZE);
+      refreshData();
+      dataRefreshInterval = setInterval(refreshData, 5000);
+    }
+
+    function showDownPanel() {
+      island.style.transition = 'none';
+      island.classList.remove('expanded', 'expanded-settings', 'auto-expanded');
+      if (dataRefreshInterval) { clearInterval(dataRefreshInterval); dataRefreshInterval = null; }
+      island.classList.add('expanded-down');
+      resizeWindow(DOWN_EXPANDED_SIZE);
+      refreshData();
+      dataRefreshInterval = setInterval(refreshData, 5000);
+      setTimeout(function(){ island.style.transition = ''; }, 400);
+    }
+
+    function showSettingsPanel() {
+      island.style.transition = '';
+      island.classList.remove('expanded', 'expanded-down', 'auto-expanded');
+      if (dataRefreshInterval) { clearInterval(dataRefreshInterval); dataRefreshInterval = null; }
+      island.classList.add('expanded-settings');
+      resizeWindow(EXPANDED_SIZE);
+      loadSettings();
+    }
+
+    circle.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (hasDragged) { hasDragged = false; return; }
+      clickCount++;
+
+      if (clickCount === 1) {
+        clickTimer = setTimeout(function() {
+          if (isAnyPanelOpen()) {
+            hideAllPanels();
+          } else if (currentStatusState === 'processing') {
+            showDownPanel();
+          } else {
+            showDataPanel();
+          }
+          clickCount = 0;
+        }, 300);
+      } else if (clickCount === 2) {
+        clearTimeout(clickTimer);
+        clickCount = 0;
+        if (island.classList.contains('expanded-settings')) {
+          hideAllPanels();
+        } else {
+          showSettingsPanel();
+        }
+      }
+    });
+
+    document.addEventListener('click', function(e) {
+      if (!island.contains(e.target)) { hideAllPanels(); }
+    });
+
+    async function loadSettings() {
+      try {
+        var settings = await ipcRenderer.invoke('get-settings');
+        document.querySelectorAll('#spLanguage .sp-btn').forEach(function(btn) {
+          btn.classList.toggle('active', btn.dataset.lang === settings.language);
+        });
+        document.querySelectorAll('#spTheme .sp-btn').forEach(function(btn) {
+          btn.classList.toggle('active', btn.dataset.theme === settings.theme);
+        });
+        document.getElementById('spAutoStart').checked = settings.autoStart;
+        // Apply language and theme
+        applyLanguage(settings.language);
+        applyTheme(settings.theme);
+      } catch (err) {}
+    }
+
+    document.getElementById('spLanguage').addEventListener('click', async function(e) {
+      var btn = e.target.closest('.sp-btn');
+      if (!btn) return;
+      document.querySelectorAll('#spLanguage .sp-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      await ipcRenderer.invoke('save-settings', { language: btn.dataset.lang });
+      applyLanguage(btn.dataset.lang);
+    });
+
+    document.getElementById('spTheme').addEventListener('click', async function(e) {
+      var btn = e.target.closest('.sp-btn');
+      if (!btn) return;
+      document.querySelectorAll('#spTheme .sp-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      await ipcRenderer.invoke('save-settings', { theme: btn.dataset.theme });
+      applyTheme(btn.dataset.theme);
+    });
+
+    document.getElementById('spAutoStart').addEventListener('change', async function(e) {
+      await ipcRenderer.invoke('save-settings', { autoStart: e.target.checked });
+      await ipcRenderer.invoke('set-auto-start', e.target.checked);
+    });
+
+    var spAfdian = document.getElementById('spAfdian');
+    if (spAfdian) {
+      spAfdian.addEventListener('click', function() {
+        shell.openExternal('https://ifdian.net/a/Youtiaowei');
+      });
+      spAfdian.addEventListener('mouseenter', function() { this.style.opacity = '0.7'; });
+      spAfdian.addEventListener('mouseleave', function() { this.style.opacity = '1'; });
+    }
+
+    var spOpenGateway = document.getElementById('spOpenGateway');
+    if (spOpenGateway) {
+      spOpenGateway.addEventListener('click', function(e) {
+        e.stopPropagation();
+        ipcRenderer.send('open-gateway');
+      });
+    }
+
+    // Drag support
+    var isDragging = false, hasDragged = false, mouseDownActive = false;
+    var dragStartX = 0, dragStartY = 0;
+    const DRAG_THRESHOLD = 5;
+
+    circle.addEventListener('mousedown', function(e) {
+      isDragging = false; mouseDownActive = true; hasDragged = false;
+      dragStartX = e.screenX; dragStartY = e.screenY;
+    });
+
+    document.addEventListener('mousemove', function(e) {
+      if (!mouseDownActive) return;
+      if (!isDragging) {
+        var dx = Math.abs(e.screenX - dragStartX);
+        var dy = Math.abs(e.screenY - dragStartY);
+        if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
+          hasDragged = true; isDragging = true;
+          ipcRenderer.send('start-drag', dragStartX, dragStartY);
+          ipcRenderer.send('move-window', e.screenX, e.screenY);
+          if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; clickCount = 0; }
+        }
+      } else {
+        ipcRenderer.send('move-window', e.screenX, e.screenY);
+      }
+    });
+
+    document.addEventListener('mouseup', function() {
+      mouseDownActive = false;
+      if (isDragging) { isDragging = false; ipcRenderer.send('stop-drag'); }
+    });
+
+    // Load settings on startup and apply theme/language
+    async function initSettings() {
+      try {
+        var settings = await ipcRenderer.invoke('get-settings');
+        applyLanguage(settings.language);
+        applyTheme(settings.theme);
+      } catch (err) {}
+    }
+    initSettings();
+
+    ipcRenderer.on('status-update', function(event, status) { updateUI(status); });
+    ipcRenderer.invoke('get-status').then(function(status) { updateUI(status); });
+
+    document.addEventListener('contextmenu', function(e) {
+      e.preventDefault();
+      ipcRenderer.send('close-window');
+    });
+  </script>
+</body>
+</html>
